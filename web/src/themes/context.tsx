@@ -40,6 +40,37 @@ const STORAGE_KEY = "hermes-dashboard-theme";
  *  the React tree mounts (see `main.tsx`) to avoid a font flash. */
 const FONT_STORAGE_KEY = "hermes-dashboard-font";
 
+/** LocalStorage key holding the *resolved* look of the active theme, so the
+ *  blocking script in `index.html` can repaint it before React exists.
+ *
+ *  Seeding STORAGE_KEY alone is not enough for user YAML themes: their
+ *  definitions live server-side, so the first `resolveTheme` on a cold load
+ *  misses and falls back to `defaultTheme` — the default palette (and the
+ *  un-hidden stock header) paint until `GET /api/dashboard/themes` lands.
+ *  Caching the computed CSS text closes that window. */
+const FLASH_CACHE_KEY = "hermes-dashboard-flash-cache";
+
+/** Record the applied look for the next cold load.
+ *
+ *  Only ever called with a theme that genuinely resolved — caching a
+ *  `defaultTheme` fallback would replay the exact flash we are removing. */
+function cacheResolvedTheme(theme: DashboardTheme) {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      FLASH_CACHE_KEY,
+      JSON.stringify({
+        name: theme.name,
+        cssText: document.documentElement.style.cssText,
+        customCSS: theme.customCSS ?? "",
+      }),
+    );
+  } catch {
+    // Private mode / quota exceeded: the cache is best-effort, and its only
+    // failure mode is the flash we had before.
+  }
+}
+
 /** Renames of built-in theme keys we've shipped previously. Without this,
  *  users who saved one of the old names in localStorage (or had it
  *  persisted server-side) would silently fall back to `defaultTheme`
@@ -438,6 +469,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     Record<string, DashboardTheme>
   >({});
 
+  /** Has `GET /api/dashboard/themes` settled (either way)?
+   *
+   *  Until it has, a user YAML theme cannot resolve, so `resolveTheme` returns
+   *  the `defaultTheme` fallback. Applying that fallback would overwrite the
+   *  correct palette the pre-paint script in `index.html` already put on
+   *  `<html>` — i.e. React itself would cause the flash. Gate on this so we
+   *  only apply once we can trust the answer. */
+  const [themesLoaded, setThemesLoaded] = useState(false);
+
   /** Active font-override id (independent of theme). `THEME_DEFAULT_FONT_ID`
    *  = no override. Seeded from localStorage so it's applied flash-free. */
   const [fontId, setFontId] = useState<string>(() => {
@@ -467,8 +507,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // which restores the theme's own font; setting it re-asserts the override.
   useEffect(() => {
     _ACTIVE_FONT_OVERRIDE = fontId;
-    applyTheme(resolveTheme(themeName));
-  }, [themeName, resolveTheme, fontId]);
+    const resolved = resolveTheme(themeName);
+
+    // A miss before the themes have loaded is "not known yet", not "absent".
+    // Applying the `defaultTheme` fallback here would repaint the stock
+    // palette over the pre-painted one and un-hide the stock header — the
+    // flash, caused by us. Wait: this effect re-runs when `resolveTheme`
+    // changes as the definitions land. Once loaded, a miss is a real miss
+    // (deleted YAML), so the fallback is then correct to apply.
+    if (!themesLoaded && resolved.name !== themeName) return;
+
+    applyTheme(resolved);
+
+    // Cache only a genuine hit, never a fallback — caching a fallback would
+    // replay the default palette on every future load.
+    if (resolved.name === themeName) cacheResolvedTheme(resolved);
+  }, [themeName, resolveTheme, fontId, themesLoaded]);
 
   // Load server-side themes (built-ins + user YAMLs) once on mount.
   useEffect(() => {
@@ -509,7 +563,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        // Unblock the apply effect either way: on failure the fallback is the
+        // best answer available, and staying gated would strand the UI on a
+        // stale cached palette.
+        if (!cancelled) setThemesLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
