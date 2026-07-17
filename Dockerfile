@@ -360,4 +360,24 @@ VOLUME [ "/opt/data" ]
 # exit code. Without the wrapper-as-ENTRYPOINT, leading-dash args
 # like `--version` would be intercepted by /init's POSIX shell.
 ENTRYPOINT [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
-CMD [ ]
+# Upstream ships `CMD [ ]`, which routes to the interactive TUI. That is the
+# right default for a laptop and the wrong one for a server: with no TTY the
+# TUI prints "Input is not a terminal (fd=0)" and exits, /init begins stage-3
+# shutdown, and the container dies — then restarts, forever. The symptom is a
+# container that reports "Up 4 seconds" on every inspection while the dashboard
+# never answers.
+#
+# This is a server image, so it defaults to the server command. `gateway run`
+# is the supervised form: s6 keeps it alive, the dashboard runs alongside it
+# when HERMES_DASHBOARD=1, and — critically — it carries the kanban dispatcher
+# that spawns workers for ready cards. Without it, jobs sit in `ready` forever.
+#
+# Every explicit invocation documented above still works, because CMD only
+# supplies the default args: `docker run <image> chat -q "hi"`, `--tui`, and
+# `sleep infinity` all override it. Only the bare `docker run <image>` changes.
+#
+# Orchestrators are the reason this must live in the image rather than in the
+# run command: Coolify's dockerimage build pack generates a compose service
+# with no `command:` key at all, so there is no way to pass this in. The image
+# has to be correct by itself.
+CMD [ "gateway", "run" ]
