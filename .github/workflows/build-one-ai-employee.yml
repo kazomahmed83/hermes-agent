@@ -1,0 +1,89 @@
+# Build the One AI Employee engine image on GitHub, publish to GHCR.
+#
+# Why this exists: the inherited docker.yml is guarded with
+# `if: github.repository == 'NousResearch/hermes-agent'`, so it never runs in a
+# fork — by design, so forks don't burn CI. This one is ours.
+#
+# Why build here instead of on the server: this image is heavy (Chromium,
+# ffmpeg, Node 22, python-olm compiling from source) and upstream budgets 45
+# minutes per arch for it. Building it on a box that is already running
+# something real risks an OOM that the kernel resolves by killing whatever it
+# likes — including the thing you care about. GitHub Actions is free and
+# unlimited on public repos, so the build costs nothing and touches no server
+# you own. The server then pulls a finished image in ~2 minutes.
+name: Build One AI Employee engine
+
+on:
+  workflow_dispatch:          # build on demand
+  push:
+    branches: [one-ai-employee]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'website/**'
+
+permissions:
+  contents: read
+  packages: write             # push to ghcr.io — no registry secret needed,
+                              # GITHUB_TOKEN is enough for our own namespace
+
+concurrency:
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Upstream budgets 45 min for one arch and this build is cold the first
+    # time (no cache yet). Give it real room rather than failing at the finish.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: Dockerfile
+          # linux/amd64 only. Hetzner CX/CPX are x86; their CAX line is ARM.
+          # If the target box is a CAX, add linux/arm64 here — it roughly
+          # doubles the build, so we don't pay for it speculatively.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:one-ai-employee
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          # The Dockerfile bakes this into /opt/hermes/.hermes_build_sha so
+          # `hermes dump` and the startup banner can report which commit is
+          # actually running. Without it, container bug reports say "(unknown)".
+          build-args: |
+            HERMES_GIT_SHA=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Hermes Agent + One AI Employee flash fix
+          cache-from: type=gha,scope=engine-amd64
+          cache-to: type=gha,mode=max,scope=engine-amd64
+
+      - name: Where to pull it from
+        run: |
+          echo "::notice title=Image published::ghcr.io/${{ github.repository }}:one-ai-employee"
+          echo "Pull on the server with:"
+          echo "  docker pull ghcr.io/${{ github.repository }}:one-ai-employee"
+          echo ""
+          echo "GHCR packages start PRIVATE. To let the server pull without a token,"
+          echo "make it public: repo -> Packages -> hermes-agent -> Package settings"
+          echo "  -> Change visibility -> Public."
+          echo "Nothing secret is in this image: it is upstream Hermes plus a"
+          echo "front-end flash fix. Your keys live in the server's env, never here."
