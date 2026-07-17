@@ -8,6 +8,46 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Hermes Agent - Dashboard</title>
+    <!--
+      Repaint the active theme before the first paint.
+
+      This must stay inline and blocking. `main.tsx` is a module script, so it
+      is deferred: the browser paints the stock palette (and the stock header)
+      before React exists. React then applies the theme from an effect, later
+      still — and a user YAML theme's definition only arrives with
+      GET /api/dashboard/themes, later again. That is the flash.
+
+      `themes/context.tsx` caches the resolved CSS text under
+      FLASH_CACHE_KEY once a theme genuinely resolves; this replays it.
+      A cache miss falls through to the previous behaviour.
+    -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("hermes-dashboard-flash-cache");
+          if (!raw) return;
+          var cached = JSON.parse(raw);
+          if (!cached || !cached.cssText) return;
+          // Ignore a stale cache if the selected theme has since changed.
+          var active = localStorage.getItem("hermes-dashboard-theme") || "default";
+          if (cached.name !== active) return;
+
+          document.documentElement.style.cssText = cached.cssText;
+
+          if (cached.customCSS) {
+            // Same id applyCustomCSS() looks up, so React adopts this element
+            // rather than appending a second one.
+            var style = document.createElement("style");
+            style.id = "hermes-theme-custom-css";
+            style.setAttribute("data-hermes-theme-css", "true");
+            style.textContent = cached.customCSS;
+            document.head.appendChild(style);
+          }
+        } catch (err) {
+          // Never block boot over a cosmetic cache.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
