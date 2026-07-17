@@ -105,24 +105,29 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && 
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     ln -sf /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
-# Claude Code CLI, so agents can delegate to it as a child ACP agent
-# (`delegate_task` with acp_command, and tools/delegate_tool.py's
-# override_acp_command). Claude Code makes its own API calls with its own
-# headers and is billed against the operator's Claude SUBSCRIPTION — unlike
-# handing an OAuth token to api.anthropic.com as a bearer, which bills as API
-# usage and fails with "You're out of extra usage" on a plan without credits.
+# Claude Code CLI + its official ACP adapter, so a whole profile can run on
+# Claude as its brain: set the profile's `model.provider: copilot-acp` and
+# `HERMES_COPILOT_ACP_COMMAND=claude-code-acp` in .env, and the worker speaks
+# ACP to the adapter, which drives the claude binary. Claude Code makes its own
+# API calls with its own headers and is billed against the operator's Claude
+# SUBSCRIPTION — unlike handing the same OAuth token to api.anthropic.com as a
+# bearer, which bills as API usage and fails with "You're out of extra usage"
+# on a plan without credits. Also usable for delegate_task acp_command.
 #
-# This MUST live in the image: delegate_tool.py silently ignores acp_command
-# when the binary is absent from PATH (`shutil.which` check), so an install
-# done via `docker exec` would vanish on the next deploy and the feature would
-# quietly stop working with no error.
+# BOTH packages MUST live in the image: auth.py raises "Could not find the
+# Copilot CLI command" when HERMES_COPILOT_ACP_COMMAND points at a missing
+# binary, and delegate_tool.py silently ignores acp_command when the binary is
+# absent from PATH (`shutil.which`). An install done via `docker exec` vanishes
+# on the next deploy and every card routed to that profile starts failing.
 #
-# Login is NOT baked in and cannot be: `claude /login` needs a TTY. Run it once
-# per volume with `docker exec -it <container> claude /login`. Credentials land
-# in $HOME/.claude/ and HOME is /opt/data, so they persist on the data volume
-# across container replacement.
-RUN npm install -g @anthropic-ai/claude-code && \
-    claude --version
+# Login is NOT baked in. No TTY needed though: Hermes' own Anthropic OAuth uses
+# the same client id and token format as Claude Code, so writing the pool
+# entry's access+refresh token into $HOME/.claude/.credentials.json as
+# {"claudeAiOauth": {...}} logs the CLI in. HOME is /opt/data, so credentials
+# persist on the data volume across container replacement and auto-refresh.
+RUN npm install -g @anthropic-ai/claude-code @zed-industries/claude-code-acp && \
+    claude --version && \
+    test -x /usr/local/bin/claude-code-acp
 
 WORKDIR /opt/hermes
 
