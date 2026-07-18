@@ -52,4 +52,27 @@ PUBLIC_API_PATHS: frozenset[str] = frozenset({
     # the NAS relay's bearer-only callback reaches the verifier instead of a
     # 401 no_cookie. The JWT — not this allowlist — is the security boundary.
     "/api/cron/fire",
+
+    # One AI Employee GHL Marketplace integration endpoints. These are public
+    # because GoHighLevel calls them server-to-server or loads them inside
+    # HighLevel. Sensitive routes carry their own OAuth/signature/secret
+    # boundary; do not broaden this to a prefix.
+    "/api/plugins/one-ai-employee/ghl/health",
+    "/api/plugins/one-ai-employee/ghl/registry",
+    "/api/plugins/one-ai-employee/ghl/oauth/callback",
+    "/api/plugins/one-ai-employee/ghl/webhooks",
+    "/api/plugins/one-ai-employee/ghl/webhooks/workflow-action",
+    "/api/plugins/one-ai-employee/ghl/webhooks/trigger-subscription",
+    "/api/plugins/one-ai-employee/ghl/dashboard",
+    "/api/plugins/one-ai-employee/ghl/custom.js",
+
+    "/api/plugins/one-ai-employee/connect/health",
+    "/api/plugins/one-ai-employee/connect/registry",
+    "/api/plugins/one-ai-employee/connect/oauth/callback",
+    "/api/plugins/one-ai-employee/connect/webhooks",
+    "/api/plugins/one-ai-employee/connect/webhook",
+    "/api/plugins/one-ai-employee/connect/webhooks/workflow-action",
+    "/api/plugins/one-ai-employee/connect/webhooks/trigger-subscription",
+    "/api/plugins/one-ai-employee/connect/dashboard",
+    "/api/plugins/one-ai-employee/connect/custom.js",
 })

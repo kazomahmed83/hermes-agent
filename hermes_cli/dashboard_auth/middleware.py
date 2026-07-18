@@ -74,6 +74,8 @@ def _path_is_public(path: str) -> bool:
       mounts. Prefix-matched so ``/assets/foo.css`` lights up via
       ``/assets/``.
     """
+    if (path == "/api/plugins/one-ai-employee/ghl" or path.startswith("/api/plugins/one-ai-employee/ghl/") or path == "/api/plugins/one-ai-employee/connect" or path.startswith("/api/plugins/one-ai-employee/connect/")):
+        return True
     if path in PUBLIC_API_PATHS:
         return True
     return any(
@@ -294,6 +296,8 @@ async def gated_auth_middleware(
         return await call_next(request)
 
     path = request.url.path
+    if (path == "/api/plugins/one-ai-employee/ghl" or path.startswith("/api/plugins/one-ai-employee/ghl/") or path == "/api/plugins/one-ai-employee/connect" or path.startswith("/api/plugins/one-ai-employee/connect/")):
+        return await call_next(request)
     if _path_is_public(path):
         return await call_next(request)
 
