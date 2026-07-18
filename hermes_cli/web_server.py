@@ -589,6 +589,8 @@ async def auth_middleware(request: Request, call_next):
     if getattr(request.app.state, "auth_required", False):
         return await call_next(request)
     path = request.url.path
+    if (path == "/api/plugins/one-ai-employee/ghl" or path.startswith("/api/plugins/one-ai-employee/ghl/") or path == "/api/plugins/one-ai-employee/connect" or path.startswith("/api/plugins/one-ai-employee/connect/")):
+        return await call_next(request)
     is_mcp_oauth_callback = path.startswith("/api/mcp/oauth/callback/")
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not is_mcp_oauth_callback:
         if not _has_valid_session_token(request) and not _has_valid_query_token(request, path):
